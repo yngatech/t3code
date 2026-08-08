@@ -307,6 +307,26 @@ function projectRawOutput(
   return Object.keys(projected).length > 0 ? projected : undefined;
 }
 
+function isCodexTerminalInteractionActivity(
+  activity: OrchestrationThreadActivity,
+  payload: Record<string, unknown>,
+  data: Record<string, unknown>,
+): boolean {
+  if (activity.kind !== "tool.updated" || payload.itemType !== "command_execution") {
+    return false;
+  }
+
+  const expectedKeys = new Set(["itemId", "processId", "stdin", "threadId", "turnId"]);
+  return (
+    Object.keys(data).every((key) => expectedKeys.has(key)) &&
+    typeof data.itemId === "string" &&
+    typeof data.processId === "string" &&
+    typeof data.stdin === "string" &&
+    typeof data.threadId === "string" &&
+    typeof data.turnId === "string"
+  );
+}
+
 /**
  * Removes activity payload fields that no current client reads while retaining
  * the full payload in persistence and the event store.
@@ -319,6 +339,12 @@ export function projectActivityPayload(
   if (!payload || !data) {
     return activity;
   }
+
+  // Older event stores contain Codex terminal-interaction notifications that
+  // were projected as standalone command updates. They carry stdin but no
+  // command or output. Keep them out of every client timeline during snapshot
+  // and replay, and let the regular slimming below remove the sensitive stdin.
+  const hideTerminalInteraction = isCodexTerminalInteractionActivity(activity, payload, data);
 
   if (payload.itemType === "mcp_tool_call") {
     return {
@@ -370,6 +396,7 @@ export function projectActivityPayload(
 
   const projectedPayload: Record<string, unknown> = {
     ...payload,
+    ...(hideTerminalInteraction ? { timelineBypass: true } : {}),
     data: projectedData,
   };
   if (payload.itemType === "command_execution") {

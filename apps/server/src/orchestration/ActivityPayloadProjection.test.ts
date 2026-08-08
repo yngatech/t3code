@@ -127,6 +127,66 @@ describe("projectActivityPayload agent-field survival", () => {
 });
 
 describe("projectActivityPayload command exit codes", () => {
+  it("hides historical Codex terminal interactions and strips stdin", () => {
+    const projected = projectActivityPayload({
+      ...activity({}),
+      kind: "tool.updated",
+      summary: "Tool updated",
+      payload: {
+        itemType: "command_execution",
+        data: {
+          itemId: "exec-1",
+          processId: "1234",
+          stdin: "sensitive input",
+          threadId: "provider-thread-1",
+          turnId: "turn-1",
+        },
+      },
+    } as OrchestrationThreadActivity);
+
+    expect(projected.payload).toMatchObject({
+      itemType: "command_execution",
+      timelineBypass: true,
+      data: {},
+    });
+    expect(JSON.stringify(projected.payload)).not.toContain("sensitive input");
+  });
+
+  it("does not hide unrelated command updates", () => {
+    const projected = projectActivityPayload({
+      ...activity({}),
+      kind: "tool.updated",
+      payload: {
+        itemType: "command_execution",
+        data: {
+          item: {
+            command: "bun test",
+            status: "inProgress",
+          },
+        },
+      },
+    } as OrchestrationThreadActivity);
+
+    expect(projected.payload).not.toHaveProperty("timelineBypass");
+  });
+
+  it("strips stdin even when a command update does not match the interaction shape", () => {
+    const projected = projectActivityPayload({
+      ...activity({}),
+      kind: "tool.updated",
+      payload: {
+        itemType: "command_execution",
+        data: {
+          stdin: "sensitive input",
+          unexpectedFutureField: true,
+        },
+      },
+    } as OrchestrationThreadActivity);
+
+    expect(projected.payload).not.toHaveProperty("timelineBypass");
+    expect(JSON.stringify(projected.payload)).not.toContain("sensitive input");
+  });
+
   it("retains a Codex command exit code while dropping command output", () => {
     const projected = projectActivityPayload(
       commandActivity({

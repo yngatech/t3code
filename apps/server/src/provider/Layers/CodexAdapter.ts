@@ -1133,17 +1133,21 @@ function mapToRuntimeEvents(
     return completed ? [completed] : [];
   }
 
-  if (
-    event.method === "item/reasoning/summaryPartAdded" ||
-    event.method === "item/commandExecution/terminalInteraction"
-  ) {
+  // Terminal interactions only report stdin written to an existing command.
+  // The command lifecycle already owns the user-facing row and eventual
+  // output, so projecting these as standalone tool updates creates anonymous
+  // "Tool updated" rows with no command output to load.
+  if (event.method === "item/commandExecution/terminalInteraction") {
+    return [];
+  }
+
+  if (event.method === "item/reasoning/summaryPartAdded") {
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
         type: "item.updated",
         payload: {
-          itemType:
-            event.method === "item/reasoning/summaryPartAdded" ? "reasoning" : "command_execution",
+          itemType: "reasoning",
           ...(event.payload !== undefined ? { data: event.payload } : {}),
         },
       },
